@@ -1,0 +1,15 @@
+name: Laser additive manufacturing
+description: LPBF, DED, melt pool dynamics and defects in metallic materials
+feeds: [arxiv_applied_physics, arxiv_materials, npj_manufacturing, communications_materials, nature_communications]
+filter:
+  pattern: '(?i)(laser.{0,35}(powder bed|additive manufactur|metal print|directed energy|cladding|weld|process|melt pool)|LPBF|L-PBF|SLM|selective laser melting|directed energy deposition|melt pool|molten pool|metal.{0,30}(additive manufactur|3D print))'
+  fields: [title, summary]
+ranking:
+  query: Laser powder bed fusion and directed energy deposition of metals; laser processing, melt pool dynamics, solidification, porosity, spatter, defects and microstructure.
+  negative_queries: [polymer printing, biomedical drug delivery, dentistry, erratum, corrigendum]
+  preferred_authors: []
+  priority_author_boost: 0.0
+  model: all-MiniLM-L6-v2
+abstract_fetch: {enabled: true, rank_threshold: 0.25}
+paperqa: {download_rank_threshold: 0.99, rps: 0.3, max_retries: 1, llm: gpt-4o-mini, summary_llm: gpt-4o-mini, prompt: 'Return only valid JSON with keys summary, topical_relevance, novelty_impact.'}
+output: {filename: laser_additive_manufacturing.html, filename_ranked: laser_additive_manufacturing_ranked.html, filename_summary: laser_additive_manufacturing_summary.html, archive: true}

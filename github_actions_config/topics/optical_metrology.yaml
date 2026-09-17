@@ -1,0 +1,15 @@
+name: Optical metrology for manufacturing
+description: OCT, optical tomography and stereo vision in laser processes
+feeds: [arxiv_applied_physics, arxiv_optics, npj_manufacturing, nature_communications]
+filter:
+  pattern: '(?i)(optical coherence tomograph.{0,100}(manufactur|laser|melt pool|weld)|(?:manufactur|laser|melt pool|weld).{0,100}optical coherence tomograph|\bOCT\b.{0,50}(manufactur|laser|melt pool|weld)|optical tomograph.{0,80}(manufactur|laser|melt pool|weld)|stereo.{0,15}(vision|imaging|camera).{0,50}(manufactur|laser|melt pool|weld)|binocular.{0,20}(vision|imaging).{0,50}(manufactur|laser|melt pool|weld)|3D.{0,20}(melt pool|laser process|weld pool))'
+  fields: [title, summary]
+ranking:
+  query: Optical coherence tomography, optical tomography and binocular stereo vision for three dimensional measurement and in situ monitoring of laser processing and metal additive manufacturing.
+  negative_queries: [retinal imaging, ophthalmology, endoscopy, erratum, corrigendum]
+  preferred_authors: []
+  priority_author_boost: 0.0
+  model: all-MiniLM-L6-v2
+abstract_fetch: {enabled: true, rank_threshold: 0.25}
+paperqa: {download_rank_threshold: 0.99, rps: 0.3, max_retries: 1, llm: gpt-4o-mini, summary_llm: gpt-4o-mini, prompt: 'Return only valid JSON with keys summary, topical_relevance, novelty_impact.'}
+output: {filename: optical_metrology.html, filename_ranked: optical_metrology_ranked.html, filename_summary: optical_metrology_summary.html, archive: true}

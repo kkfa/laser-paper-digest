@@ -1,0 +1,15 @@
+name: In situ process monitoring
+description: Melt pool imaging, thermal sensing and optical process monitoring
+feeds: [arxiv_applied_physics, arxiv_optics, arxiv_materials, npj_manufacturing, communications_materials, nature_communications]
+filter:
+  pattern: '(?i)(in.situ.{0,35}(monitor|imaging|inspection|sensing)|online.{0,25}(monitor|inspection)|melt pool.{0,35}(monitor|imaging|temperatur|thermograph)|pyromet|two.wavelength.{0,15}(temperatur|pyromet)|dual.wavelength.{0,15}(temperatur|pyromet)|thermal imaging.{0,40}(laser|manufactur|weld)|coaxial.{0,25}(imaging|monitor))'
+  fields: [title, summary]
+ranking:
+  query: In situ optical and thermal monitoring of metallic laser additive manufacturing; melt pool imaging, two wavelength pyrometry, coaxial sensing and process control.
+  negative_queries: [biomedical monitoring, clinical imaging, erratum, corrigendum]
+  preferred_authors: []
+  priority_author_boost: 0.0
+  model: all-MiniLM-L6-v2
+abstract_fetch: {enabled: true, rank_threshold: 0.25}
+paperqa: {download_rank_threshold: 0.99, rps: 0.3, max_retries: 1, llm: gpt-4o-mini, summary_llm: gpt-4o-mini, prompt: 'Return only valid JSON with keys summary, topical_relevance, novelty_impact.'}
+output: {filename: in_situ_monitoring.html, filename_ranked: in_situ_monitoring_ranked.html, filename_summary: in_situ_monitoring_summary.html, archive: true}

@@ -1,0 +1,28 @@
+database:
+  path: papers.db
+  all_feeds_path: all_feed_entries.db
+  history_path: matched_entries_history.db
+feeds:
+  arxiv_applied_physics: {name: arXiv Applied Physics, url: 'https://rss.arxiv.org/rss/physics.app-ph', enabled: true}
+  arxiv_optics: {name: arXiv Optics, url: 'https://rss.arxiv.org/rss/physics.optics', enabled: true}
+  arxiv_materials: {name: arXiv Materials Science, url: 'https://rss.arxiv.org/rss/cond-mat.mtrl-sci', enabled: true}
+  npj_manufacturing: {name: npj Advanced Manufacturing, url: 'https://www.nature.com/npjadvmanuf.rss', enabled: true}
+  communications_materials: {name: Communications Materials, url: 'https://www.nature.com/commsmat.rss', enabled: true}
+  nature_communications: {name: Nature Communications, url: 'https://www.nature.com/ncomms.rss', enabled: true}
+priority_journals: [npj_manufacturing, communications_materials]
+priority_journal_boost: 0.15
+defaults:
+  time_window_days: 14
+  top_n_per_topic: 10
+  rank_threshold: 0.25
+  ranking_negative_penalty: 0.25
+  abstracts: {rps: 1.0, max_retries: 3, mailto: 'researcher@example.com'}
+email:
+  recipients_file: secrets/mailing_lists.yaml
+  subject_prefix: Laser paper digest
+  from: researcher@example.com
+  smtp:
+    host: smtp.gmail.com
+    port: 465
+    username: researcher@example.com
+    password_file: secrets/email_password.env

@@ -1,0 +1,542 @@
+"""Command-line entry point for Paper Firehose."""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sys
+
+import click
+
+from . import __version__
+from .commands import abstracts as abstracts_cmd
+from .commands import config_cmd
+from .commands import email_list as email_cmd
+from .commands import export_recent as export_recent_cmd
+from .commands import filter as filter_cmd
+from .commands import generate_html as html_cmd
+from .commands import migrate_db as migrate_cmd
+from .commands import pqa_summary as pqa_cmd
+from .commands import query as query_cmd
+from .commands import rank as rank_cmd
+from .commands import status as status_cmd
+from .commands import topic_cmd
+from .core.config import ConfigManager, DEFAULT_CONFIG_PATH
+from .core.exit_codes import ERR_CONFIG, ERR_RUNTIME, ERR_USAGE
+from .core.paths import get_data_dir
+
+# Setup logging early so submodules inherit sane defaults
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
+
+@click.group()
+@click.version_option(version=__version__, prog_name="paper-firehose")
+@click.option(
+    "--config",
+    default=str(DEFAULT_CONFIG_PATH),
+    show_default=True,
+    help="Path to config file (defaults to data_dir/config/config.yaml)",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
+@click.pass_context
+def cli(ctx: click.Context, config: str, verbose: bool) -> None:
+    """Paper Firehose - RSS feed filtering and ranking for research papers."""
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    ctx.ensure_object(dict)
+    ctx.obj["config_path"] = config
+
+
+@cli.command("filter")
+@click.option("--topic", help="Filter specific topic only")
+@click.option("--json", "output_json", is_flag=True, help="Output results as JSON")
+@click.pass_context
+def filter_feeds(ctx: click.Context, topic: str | None, output_json: bool) -> None:
+    """Fetch RSS feeds and filter entries by regex patterns."""
+    try:
+        result = filter_cmd.run(ctx.obj["config_path"], topic, output_json=output_json)
+        if output_json and result:
+            click.echo(json.dumps(result, indent=2, default=str))
+        else:
+            click.echo("✅ Filter command completed successfully")
+    except ValueError as exc:
+        click.echo(f"❌ Filter command failed: {exc}", err=True)
+        sys.exit(ERR_CONFIG)
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"❌ Filter command failed: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@cli.command("html")
+@click.option("--topic", help="Generate HTML for a specific topic only")
+@click.pass_context
+def generate_html(ctx: click.Context, topic: str | None) -> None:
+    """Generate topic HTML(s) directly from papers.db (no fetching)."""
+    try:
+        html_cmd.run(ctx.obj["config_path"], topic)
+        if topic:
+            click.echo(f"✅ HTML generated for topic '{topic}'")
+        else:
+            click.echo("✅ HTML generated for all topics")
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"❌ HTML generation failed: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@cli.command("export-recent")
+@click.option("--days", default=60, type=click.IntRange(min=1), help="Number of days to include (default: 60)")
+@click.option("--output", default=None, help="Output filename (default: matched_entries_history.recent.db)")
+@click.pass_context
+def export_recent(ctx: click.Context, days: int, output: str | None) -> None:
+    """Export recent entries to a smaller database file for faster web loading."""
+    try:
+        export_recent_cmd.run(ctx.obj["config_path"], days, output)
+        click.echo(f"✅ Exported entries from last {days} days successfully")
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"❌ Export-recent command failed: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@cli.command("rank")
+@click.option("--topic", help="Rank a specific topic only")
+@click.option("--json", "output_json", is_flag=True, help="Output results as JSON")
+@click.pass_context
+def rank(ctx: click.Context, topic: str | None, output_json: bool) -> None:
+    """Compute and write rank scores into papers.db (rank_score only)."""
+    try:
+        result = rank_cmd.run(ctx.obj["config_path"], topic, output_json=output_json)
+        if output_json and result:
+            click.echo(json.dumps(result, indent=2, default=str))
+        else:
+            if topic:
+                click.echo(f"✅ Ranking completed for topic '{topic}'")
+            else:
+                click.echo("✅ Ranking completed for all topics")
+    except ValueError as exc:
+        click.echo(f"❌ Rank command failed: {exc}", err=True)
+        sys.exit(ERR_CONFIG)
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"❌ Rank command failed: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@cli.command("abstracts")
+@click.option("--topic", help="Fetch abstracts for a specific topic only")
+@click.option(
+    "--mailto",
+    default=None,
+    help="Contact email for Crossref User-Agent (defaults to $MAILTO env or a safe fallback)",
+)
+@click.option("--limit", type=click.IntRange(min=1), help="Max number of abstracts to fetch per topic")
+@click.option("--rps", type=click.FloatRange(min=0, min_open=True), default=1.0, help="Requests per second throttle (default: 1.0)")
+@click.option("--json", "output_json", is_flag=True, help="Output results as JSON")
+@click.pass_context
+def abstracts(
+    ctx: click.Context,
+    topic: str | None,
+    mailto: str | None,
+    limit: int | None,
+    rps: float,
+    output_json: bool,
+) -> None:
+    """Fetch abstracts from Crossref for high-ranked entries (writes to papers.db)."""
+    try:
+        result = abstracts_cmd.run(
+            ctx.obj["config_path"],
+            topic,
+            mailto=mailto,
+            max_per_topic=limit,
+            rps=rps,
+            output_json=output_json,
+        )
+        if output_json and result:
+            click.echo(json.dumps(result, indent=2, default=str))
+        else:
+            if topic:
+                click.echo(f"✅ Abstracts fetched for topic '{topic}'")
+            else:
+                click.echo("✅ Abstract fetching completed for eligible topics")
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"❌ Abstract fetching failed: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@cli.command("pqa_summary")
+@click.option("--topic", help="Download arXiv PDFs for a specific topic only")
+@click.option("--rps", type=click.FloatRange(min=0, min_open=True), help="Requests per second throttle (polite; overrides config)")
+@click.option("--limit", type=click.IntRange(min=1), help="Limit number of entries per topic (optional)")
+@click.option(
+    "--arxiv",
+    "arxiv_ids",
+    multiple=True,
+    help="ArXiv IDs or URLs to download directly (skip DB selection). Can be specified multiple times.",
+)
+@click.option(
+    "--entry-id",
+    "entry_ids",
+    multiple=True,
+    help="Entry IDs to look up (prefer history DB for weekend testing). Multiple allowed.",
+)
+@click.option(
+    "--use-history",
+    is_flag=True,
+    help="Resolve --entry-id lookups against matched_entries_history.db (default)",
+)
+@click.option("--history-date", type=str, help="Restrict history lookup to matched_date (YYYY-MM-DD)")
+@click.option(
+    "--history-feed-like",
+    type=str,
+    help="Restrict history lookup to feeds whose name contains this substring (case-insensitive)",
+)
+@click.option(
+    "--summarize",
+    is_flag=True,
+    help="Run paper-qa summarization on the (archived) PDFs after download",
+)
+@click.pass_context
+def pqa_summary(
+    ctx: click.Context,
+    topic: str | None,
+    rps: float | None,
+    limit: int | None,
+    arxiv_ids: tuple[str, ...],
+    entry_ids: tuple[str, ...],
+    use_history: bool,
+    history_date: str | None,
+    history_feed_like: str | None,
+    summarize: bool,
+) -> None:
+    """Download arXiv PDFs for ranked entries or specific arXiv IDs/URLs."""
+    try:
+        effective_use_history = use_history or bool(entry_ids)
+        if summarize:
+            os.environ["PAPERQA_SUMMARIZE"] = "1"
+        pqa_cmd.run(
+            ctx.obj["config_path"],
+            topic,
+            rps=rps,
+            limit=limit,
+            arxiv=list(arxiv_ids) or None,
+            entry_ids=list(entry_ids) or None,
+            use_history=effective_use_history,
+            history_date=history_date,
+            history_feed_like=history_feed_like,
+        )
+        if arxiv_ids:
+            click.echo("✅ pqa_summary completed for provided arXiv IDs/URLs")
+        elif entry_ids:
+            click.echo("✅ pqa_summary completed for provided entry IDs via history lookup")
+        elif topic:
+            click.echo(f"✅ pqa_summary completed for topic '{topic}'")
+        else:
+            click.echo("✅ pqa_summary completed for all topics")
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"❌ pqa_summary failed: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@cli.command("email")
+@click.option("--topic", help="Send for a specific topic only (default: all topics)")
+@click.option(
+    "--mode",
+    type=click.Choice(["auto", "ranked"]),
+    default="auto",
+    help="Content mode: auto (from DB) or ranked (embed ranked HTML if available)",
+)
+@click.option("--limit", type=click.IntRange(min=1), help="Limit number of entries per topic")
+@click.option(
+    "--recipients",
+    "recipients_file",
+    type=str,
+    help="Path to recipients YAML (overrides config.email.recipients_file)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Do not send; write preview HTML under the runtime data directory",
+)
+@click.pass_context
+def email(
+    ctx: click.Context,
+    topic: str | None,
+    mode: str,
+    limit: int | None,
+    recipients_file: str | None,
+    dry_run: bool,
+) -> None:
+    """Send an HTML digest email generated from papers.db via SMTP."""
+    try:
+        email_cmd.run(
+            ctx.obj["config_path"],
+            topic,
+            mode=mode,
+            limit=limit,
+            dry_run=dry_run,
+            recipients_file=recipients_file,
+        )
+        if dry_run:
+            click.echo(f"📝 Email dry-run completed (preview written under {get_data_dir()})")
+        else:
+            click.echo("✅ Email sent successfully")
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"❌ Email send failed: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@cli.command("purge")
+@click.option("--days", type=click.IntRange(min=1), help="Remove entries from the most recent DAYS days (including today)")
+@click.option("--all", "all_data", is_flag=True, help="Clear all databases")
+@click.pass_context
+def purge(ctx: click.Context, days: int | None, all_data: bool) -> None:
+    """Remove entries from databases based on publication date."""
+    if not days and not all_data:
+        click.echo("Error: Must specify either --days X or --all", err=True)
+        sys.exit(ERR_USAGE)
+
+    try:
+        filter_cmd.purge(ctx.obj["config_path"], days, all_data)
+        if all_data:
+            click.echo("✅ All data purged successfully")
+        else:
+            click.echo(f"✅ Entries from the most recent {days} days purged successfully")
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"❌ Purge command failed: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@cli.command("migrate")
+@click.option("--skip-archive", is_flag=True, help="Skip archiving raw_data to raw_archive.db")
+@click.option("--dry-run", is_flag=True, help="Report what would happen without modifying databases")
+@click.pass_context
+def migrate(ctx: click.Context, skip_archive: bool, dry_run: bool) -> None:
+    """Migrate databases: archive raw_data, drop column, optimise."""
+    try:
+        migrate_cmd.run(ctx.obj["config_path"], skip_archive=skip_archive, dry_run=dry_run)
+        if dry_run:
+            click.echo("Dry run complete — no changes made")
+        else:
+            click.echo("Database migration completed successfully")
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"Migration failed: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@cli.command("query")
+@click.option("--history", "db_key", flag_value="history", help="Query history database")
+@click.option("--all-feeds", "db_key", flag_value="all_feeds", help="Query all-feeds database")
+@click.option("--topic", help="Filter by topic")
+@click.option("--min-rank", type=float, help="Minimum rank score")
+@click.option("--since", help="Published on or after date (YYYY-MM-DD)")
+@click.option("--until", help="Published on or before date (YYYY-MM-DD)")
+@click.option("--search", help="Keyword search (supports phrases \"...\", prefix*, AND/OR/NOT)")
+@click.option("--fuzzy", help="Fuzzy text search (trigram matching, min 3 chars)")
+@click.option("--rerank", help="Rerank results by semantic similarity to this query")
+@click.option("--status", "status_filter", help="Filter by status (current DB only)")
+@click.option("--has-doi", is_flag=True, help="Only entries with a DOI")
+@click.option("--has-abstract", is_flag=True, help="Only entries with an abstract")
+@click.option("--sort", default="rank", type=click.Choice(["rank", "date", "title"]),
+              help="Sort order (default: rank)")
+@click.option("--limit", default=20, type=int, help="Max results (0=unlimited)")
+@click.option("--offset", default=0, type=int, help="Skip first N results")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+@click.option("--count", "count_only", is_flag=True, help="Print count only")
+@click.option("--fields", help="Comma-separated field names to include")
+@click.pass_context
+def query(ctx: click.Context, db_key: str, topic: str, min_rank: float,
+          since: str, until: str, search: str, fuzzy: str, rerank: str,
+          status_filter: str,
+          has_doi: bool, has_abstract: bool, sort: str, limit: int,
+          offset: int, output_json: bool, count_only: bool, fields: str) -> None:
+    """Query paper databases for entries.
+
+    Examples:
+
+    \b
+      # Search history for "graphene" and rank by semantic similarity
+      paper-firehose query --history --search graphene --rerank "graphene transport measurements"
+
+    \b
+      # Top 10 from today's run
+      paper-firehose query --limit 10
+
+    \b
+      # Fuzzy search (typo-tolerant, single word)
+      paper-firehose query --history --fuzzy "pervskite"
+
+    \b
+      # JSON output for scripting / LLM agents
+      paper-firehose query --history --search perovskite --json --fields title,link,rank_score
+    """
+    try:
+        query_cmd.run(
+            ctx.obj["config_path"],
+            db_key=db_key or "current",
+            topic=topic,
+            min_rank=min_rank,
+            status=status_filter,
+            has_doi=has_doi,
+            has_abstract=has_abstract,
+            since=since,
+            until=until,
+            search=search,
+            fuzzy=fuzzy,
+            rerank=rerank,
+            sort=sort,
+            limit=limit,
+            offset=offset,
+            output_json=output_json,
+            count_only=count_only,
+            fields=fields,
+        )
+    except ValueError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_USAGE)
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"❌ Error: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@cli.command("status")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON.")
+@click.pass_context
+def status(ctx: click.Context, output_json: bool) -> None:
+    """Show system status, configuration, and database freshness."""
+    try:
+        status_cmd.run(ctx.obj["config_path"], output_json=output_json)
+    except Exception as exc:  # pragma: no cover
+        click.echo(f"❌ Error checking status: {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+# --- Config management ---
+
+@cli.group("config")
+def config_group() -> None:
+    """View and modify Paper Firehose configuration."""
+
+
+@config_group.command("show")
+@click.pass_context
+def config_show(ctx: click.Context) -> None:
+    """Pretty-print the main configuration."""
+    try:
+        click.echo(config_cmd.show(ctx.obj["config_path"]))
+    except Exception as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@config_group.command("get")
+@click.argument("key")
+@click.pass_context
+def config_get(ctx: click.Context, key: str) -> None:
+    """Get a config value by dot-notation key (e.g. defaults.rank_threshold)."""
+    try:
+        value = config_cmd.get_value(ctx.obj["config_path"], key)
+        click.echo(value)
+    except KeyError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_USAGE)
+    except Exception as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@config_group.command("set")
+@click.argument("key")
+@click.argument("value")
+@click.pass_context
+def config_set(ctx: click.Context, key: str, value: str) -> None:
+    """Set a config value by dot-notation key (e.g. defaults.rank_threshold 0.25)."""
+    try:
+        config_cmd.set_value(ctx.obj["config_path"], key, value)
+        click.echo(f"Set {key} = {config_cmd.get_value(ctx.obj['config_path'], key)}")
+    except Exception as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@config_group.command("validate")
+@click.pass_context
+def config_validate(ctx: click.Context) -> None:
+    """Run full configuration validation."""
+    try:
+        valid, unknown = config_cmd.validate(ctx.obj["config_path"])
+        if valid:
+            click.echo("✅ Configuration is valid")
+        else:
+            click.echo("❌ Configuration validation failed")
+        if unknown:
+            click.echo(f"Unknown keys: {', '.join(unknown)}")
+        if not valid:
+            sys.exit(ERR_CONFIG)
+    except Exception as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+# --- Topic management ---
+
+@cli.group("topic")
+def topic_group() -> None:
+    """View and manage topic configurations."""
+
+
+@topic_group.command("list")
+@click.pass_context
+def topic_list(ctx: click.Context) -> None:
+    """List available topics."""
+    try:
+        topics = topic_cmd.list_topics(ctx.obj["config_path"])
+        if not topics:
+            click.echo("No topics configured.")
+            return
+        for t in topics:
+            desc = f" — {t['description']}" if t.get("description") else ""
+            click.echo(f"  {t['key']}: {t['name']}{desc}")
+    except Exception as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@topic_group.command("show")
+@click.argument("name")
+@click.pass_context
+def topic_show(ctx: click.Context, name: str) -> None:
+    """Pretty-print a topic configuration."""
+    try:
+        click.echo(topic_cmd.show_topic(ctx.obj["config_path"], name))
+    except FileNotFoundError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_USAGE)
+    except Exception as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+@topic_group.command("add")
+@click.argument("name")
+@click.option("--from", "from_topic", default=None, help="Clone an existing topic")
+@click.pass_context
+def topic_add(ctx: click.Context, name: str, from_topic: str | None) -> None:
+    """Create a new topic configuration."""
+    try:
+        path = topic_cmd.add_topic(
+            ctx.obj["config_path"], name, from_topic=from_topic
+        )
+        click.echo(f"✅ Created topic '{name}' at {path}")
+    except ValueError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_USAGE)
+    except Exception as exc:
+        click.echo(f"❌ {exc}", err=True)
+        sys.exit(ERR_RUNTIME)
+
+
+if __name__ == "__main__":  # pragma: no cover - script entry
+    cli()
