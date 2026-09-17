@@ -16,7 +16,7 @@
    已预置 `smtp.gmail.com` 和 SSL 端口 `465`。如使用其他邮箱，可选填 `SMTP_SERVER`、`SMTP_PORT` 覆盖默认值。Gmail 的 SMTP 发信需要在 Google 账号中开启两步验证，然后创建应用专用密码并填入 `SMTP_PASSWORD`。邮箱的 IMAP 开关仅影响收信，不能代替这一步。
 
 3. 打开 `Actions → Laser paper digest → Run workflow` 手动测试。首次运行要下载句向量模型，可能较慢。检查运行日志与收件箱。
-4. 工作流按北京时间每天 08:00 请求执行。GitHub 的定时任务可能延迟；长时间无仓库活动可能再次自动停用，届时在 Actions 页面重新启用。
+4. 工作流按北京时间每天 09:30 请求执行。GitHub 的定时任务可能延迟；长时间无仓库活动可能再次自动停用，届时在 Actions 页面重新启用。
 
 ## 本地试运行
 
